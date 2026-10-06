@@ -153,8 +153,10 @@ fi
 # The patch file, not the commit history, is the source of truth now: put edits
 # to the patched code there (the script reports what it applied).
 
-if [[ -n "$(git log --oneline "$latest_tag..$BRANCH" -- src tests 2>/dev/null)" ]]; then
-  warn "commits on $BRANCH touch src/ or tests/, and those edits are not carried over:"
+stray_commits=$(git log --pretty='%s' "$latest_tag..$BRANCH" -- src tests 2>/dev/null \
+  | grep -cv '^local: apply the text-size patch to ' || true)
+if ((stray_commits > 0)); then
+  warn "$stray_commits commit(s) on $BRANCH touch src/ or tests/ outside the patch application:"
   warn "  the patch file is the source of truth now, so put them in local/text-size.patch"
 fi
 
@@ -172,8 +174,11 @@ if ! python3 local/apply-text-size-patch.py; then
   die "the patch could not be applied to $latest_tag; nothing was committed"
 fi
 git add -A
-if git diff --cached --quiet; then
+# A second run over the same tag produces the same tree, and a new commit for it
+# would only add noise: keep the commit that is already there.
+if [[ "$(git write-tree)" == "$(git rev-parse "$previous_head^{tree}")" ]]; then
   log "the branch already holds the patch applied to $latest_tag"
+  git reset -q --hard "$previous_head"
 else
   git commit -q -m "local: apply the text-size patch to $latest_tag"
   log "patched $latest_tag as $(git rev-parse --short HEAD)"
