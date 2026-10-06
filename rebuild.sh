@@ -18,13 +18,14 @@
 #   3. inspect the newest tag for a changed editor font anchor, or for a new
 #      font-size setting. If upstream now lets the user pick a size, the patch
 #      is obsolete and we say so instead of rebasing,
-#   4. rebase the patch onto the newest tag, rebuild, run the test suite,
+#   4. rebuild the patch branch from the newest tag (local/text-size.patch,
+#      applied by local/apply-text-size-patch.py), run the test suite,
 #   5. install into /usr/local/bin, which precedes the pacman-owned /usr/bin in
 #      PATH, so `omarchy update` never clobbers it.
 #
 # Usage
 # -----
-#   ./rebuild.sh           # check, rebase if needed, build, test, install
+#   ./rebuild.sh           # check, re-apply the patch, build, test, install
 #   ./rebuild.sh --check   # report only, change nothing
 #
 # The omarchy post-update hook (hooks/post-update.sh) runs `./rebuild.sh` after
