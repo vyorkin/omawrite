@@ -25,7 +25,11 @@ ApplicationWindow {
     // `omarchy display text size` drives) anchored so its 12px default leaves
     // the app at the sizes it was designed around.
     readonly property real textScale: backend.textScale
-    readonly property int editorFontPixelSize: scaledSize(20)
+    // local: the editor tracks the desktop text size (anchored at 12px) plus a
+    // couple of pixels, so it stays a touch larger than the desktop font, and
+    // can be nudged at runtime with the terminal-style font-size shortcuts.
+    property int editorFontAdjust: 0
+    readonly property int editorFontPixelSize: Math.max(1, scaledSize(12) + 2 + editorFontAdjust)
     readonly property int footerHeight: scaledSize(32)
     readonly property int editorWidth: Math.min(
         Math.round(writerFontMetrics.averageCharacterWidth * 65),
@@ -84,6 +88,28 @@ ApplicationWindow {
     // Every hardcoded size in the interface is expressed at text scale 1.
     function scaledSize(pixels) {
         return Math.max(1, Math.round(pixels * win.textScale));
+    }
+
+    // Terminal-style font sizing: step the editor up and down, and reset to the
+    // scale-derived default, with a transient readout.
+    function increaseEditorFont() {
+        editorFontAdjust += 1;
+        showFontSize();
+    }
+
+    function decreaseEditorFont() {
+        editorFontAdjust -= 1;
+        showFontSize();
+    }
+
+    function resetEditorFont() {
+        editorFontAdjust = 0;
+        showFontSize();
+    }
+
+    function showFontSize() {
+        fontSizeOsd.opacity = 1;
+        fontSizeOsdTimer.restart();
     }
 
     function toggleFullScreen() {
@@ -238,6 +264,27 @@ ApplicationWindow {
         onActivated: win.moveSearch(1)
     }
 
+    // Font-size shortcuts matching the terminal (kitty_mod + equal/minus/
+    // backspace), with shifted and unshifted spellings so either key layout
+    // works.
+    Shortcut {
+        sequences: ["Ctrl+Shift+=", "Ctrl+Shift++", "Ctrl+Plus", "Ctrl+="]
+        context: Qt.ApplicationShortcut
+        onActivated: win.increaseEditorFont()
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+Shift+-", "Ctrl+Minus", "Ctrl+-"]
+        context: Qt.ApplicationShortcut
+        onActivated: win.decreaseEditorFont()
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+Shift+Backspace", "Ctrl+0"]
+        context: Qt.ApplicationShortcut
+        onActivated: win.resetEditorFont()
+    }
+
     Connections {
         target: backend
 
@@ -332,7 +379,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Ctrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+O  Open\nCtrl+N  New Window\nCtrl+F  Find\nCtrl+H  Find and Replace\nCtrl+B  Bold\nCtrl+I  Italic\nCtrl+K  Link\nCtrl+P  Print\nF11 / Super+F  Fullscreen\nCtrl+?  Shortcuts"
+            text: "Ctrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+O  Open\nCtrl+N  New Window\nCtrl+F  Find\nCtrl+H  Find and Replace\nCtrl+B  Bold\nCtrl+I  Italic\nCtrl+K  Link\nCtrl+P  Print\nCtrl+Shift+= / Ctrl+Shift+-  Font Size\nCtrl+Shift+Backspace  Reset Font Size\nF11 / Super+F  Fullscreen\nCtrl+?  Shortcuts"
             lineHeight: 1.5
         }
     }
@@ -736,6 +783,30 @@ ApplicationWindow {
 
                 Keys.priority: Keys.BeforeItem
                 Keys.onPressed: function(event) {
+                    // Terminal-style font sizing. Handled here in addition to the
+                    // Shortcuts because Shift turns + and _ into their own keys
+                    // (Key_Plus / Key_Underscore), which the sequence matcher
+                    // does not equate with the unshifted '=' and '-'.
+                    if (event.modifiers & Qt.ControlModifier) {
+                        if (event.key === Qt.Key_Equal || event.key === Qt.Key_Plus) {
+                            win.increaseEditorFont();
+                            event.accepted = true;
+                            return;
+                        }
+                        if (event.key === Qt.Key_Minus || event.key === Qt.Key_Underscore) {
+                            win.decreaseEditorFont();
+                            event.accepted = true;
+                            return;
+                        }
+                        if (event.key === Qt.Key_0
+                            || (event.key === Qt.Key_Backspace
+                                && (event.modifiers & Qt.ShiftModifier))) {
+                            win.resetEditorFont();
+                            event.accepted = true;
+                            return;
+                        }
+                    }
+
                     var pasteKey = (event.key === Qt.Key_V)
                         && (event.modifiers & Qt.ControlModifier)
                         && !(event.modifiers & (Qt.AltModifier | Qt.MetaModifier | Qt.ShiftModifier));
@@ -1029,6 +1100,33 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    // Transient readout for the font-size shortcuts, mirroring the terminal.
+    Label {
+        id: fontSizeOsd
+        z: 30
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: win.scaledSize(40)
+        text: "Font size: " + win.editorFontPixelSize
+        color: win.textColor
+        font.family: "iA Writer Mono S"
+        font.pixelSize: win.scaledSize(12)
+        padding: win.scaledSize(10)
+        opacity: 0
+        visible: opacity > 0
+        background: Rectangle {
+            color: win.darkMode ? "#2a2a2a" : "#f0f0f0"
+            border.color: win.darkMode ? "#424242" : "#c8c8c8"
+        }
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+    }
+
+    Timer {
+        id: fontSizeOsdTimer
+        interval: 900
+        onTriggered: fontSizeOsd.opacity = 0
     }
 
     Component.onCompleted: {

@@ -4,6 +4,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickStyle>
+#include <QWindow>
 
 #include "backend.h"
 #include "markdownhighlighter.h"
@@ -245,16 +246,47 @@ private slots:
 
         QObject *editor = window->findChild<QObject *>(QStringLiteral("sourceEditor"));
         QVERIFY(editor);
-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 20);
+        // local: the editor is the desktop text size (anchored at 12px) plus 2px.
+        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 14);
+
+        // The terminal-style font-size shortcuts step around that default.
+        QVERIFY(QMetaObject::invokeMethod(window.data(), "increaseEditorFont"));
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
+        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 15);
+        QVERIFY(QMetaObject::invokeMethod(window.data(), "decreaseEditorFont"));
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
+        QVERIFY(QMetaObject::invokeMethod(window.data(), "resetEditorFont"));
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
+
+        // Real key events, since Shift turns '=' into Key_Plus and '_' into
+        // Key_Underscore, which the Shortcut sequences alone can miss.
+        QWindow *windowHandle = qobject_cast<QWindow *>(window.data());
+        QVERIFY(windowHandle);
+        windowHandle->requestActivate();
+        QTest::qWait(50);
+        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
+        QTest::keyClick(windowHandle, Qt::Key_Plus, Qt::ControlModifier | Qt::ShiftModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 16);
+        QTest::keyClick(windowHandle, Qt::Key_Underscore, Qt::ControlModifier | Qt::ShiftModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
+        QTest::keyClick(windowHandle, Qt::Key_Minus, Qt::ControlModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
+        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
+        QTest::keyClick(windowHandle, Qt::Key_0, Qt::ControlModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
+        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
+        QTest::keyClick(windowHandle, Qt::Key_Backspace, Qt::ControlModifier | Qt::ShiftModifier);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
 
         // `omarchy display text size 16` sets the GNOME factor to 16/12.
         backend.setTextScale(16.0 / 12.0);
-        QCOMPARE(window->property("editorFontPixelSize").toInt(), 27);
-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 27);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 18);
+        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 18);
 
         backend.setTextScale(9.0 / 12.0);
-        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 15);
+        QCOMPARE(window->property("editorFontPixelSize").toInt(), 11);
+        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 11);
     }
 
     void remembersLastSaveDirectory() {

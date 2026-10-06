@@ -1,0 +1,213 @@
+diff --git a/src/Main.qml b/src/Main.qml
+index f33ee3d..397f51b 100644
+--- a/src/Main.qml
++++ b/src/Main.qml
+@@ -25,7 +25,11 @@ ApplicationWindow {
+     // `omarchy display text size` drives) anchored so its 12px default leaves
+     // the app at the sizes it was designed around.
+     readonly property real textScale: backend.textScale
+-    readonly property int editorFontPixelSize: scaledSize(20)
++    // local: the editor tracks the desktop text size (anchored at 12px) plus a
++    // couple of pixels, so it stays a touch larger than the desktop font, and
++    // can be nudged at runtime with the terminal-style font-size shortcuts.
++    property int editorFontAdjust: 0
++    readonly property int editorFontPixelSize: Math.max(1, scaledSize(12) + 2 + editorFontAdjust)
+     readonly property int footerHeight: scaledSize(32)
+     readonly property int editorWidth: Math.min(
+         Math.round(writerFontMetrics.averageCharacterWidth * 65),
+@@ -86,6 +90,28 @@ ApplicationWindow {
+         return Math.max(1, Math.round(pixels * win.textScale));
+     }
+ 
++    // Terminal-style font sizing: step the editor up and down, and reset to the
++    // scale-derived default, with a transient readout.
++    function increaseEditorFont() {
++        editorFontAdjust += 1;
++        showFontSize();
++    }
++
++    function decreaseEditorFont() {
++        editorFontAdjust -= 1;
++        showFontSize();
++    }
++
++    function resetEditorFont() {
++        editorFontAdjust = 0;
++        showFontSize();
++    }
++
++    function showFontSize() {
++        fontSizeOsd.opacity = 1;
++        fontSizeOsdTimer.restart();
++    }
++
+     function toggleFullScreen() {
+         win.visibility = win.visibility === Window.FullScreen
+             ? Window.Windowed
+@@ -238,6 +264,27 @@ ApplicationWindow {
+         onActivated: win.moveSearch(1)
+     }
+ 
++    // Font-size shortcuts matching the terminal (kitty_mod + equal/minus/
++    // backspace), with shifted and unshifted spellings so either key layout
++    // works.
++    Shortcut {
++        sequences: ["Ctrl+Shift+=", "Ctrl+Shift++", "Ctrl+Plus", "Ctrl+="]
++        context: Qt.ApplicationShortcut
++        onActivated: win.increaseEditorFont()
++    }
++
++    Shortcut {
++        sequences: ["Ctrl+Shift+-", "Ctrl+Minus", "Ctrl+-"]
++        context: Qt.ApplicationShortcut
++        onActivated: win.decreaseEditorFont()
++    }
++
++    Shortcut {
++        sequences: ["Ctrl+Shift+Backspace", "Ctrl+0"]
++        context: Qt.ApplicationShortcut
++        onActivated: win.resetEditorFont()
++    }
++
+     Connections {
+         target: backend
+ 
+@@ -332,7 +379,7 @@ ApplicationWindow {
+         standardButtons: Dialog.Close
+         anchors.centerIn: parent
+         contentItem: Label {
+-            text: "Ctrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+O  Open\nCtrl+N  New Window\nCtrl+F  Find\nCtrl+H  Find and Replace\nCtrl+B  Bold\nCtrl+I  Italic\nCtrl+K  Link\nCtrl+P  Print\nF11 / Super+F  Fullscreen\nCtrl+?  Shortcuts"
++            text: "Ctrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+O  Open\nCtrl+N  New Window\nCtrl+F  Find\nCtrl+H  Find and Replace\nCtrl+B  Bold\nCtrl+I  Italic\nCtrl+K  Link\nCtrl+P  Print\nCtrl+Shift+= / Ctrl+Shift+-  Font Size\nCtrl+Shift+Backspace  Reset Font Size\nF11 / Super+F  Fullscreen\nCtrl+?  Shortcuts"
+             lineHeight: 1.5
+         }
+     }
+@@ -736,6 +783,30 @@ ApplicationWindow {
+ 
+                 Keys.priority: Keys.BeforeItem
+                 Keys.onPressed: function(event) {
++                    // Terminal-style font sizing. Handled here in addition to the
++                    // Shortcuts because Shift turns + and _ into their own keys
++                    // (Key_Plus / Key_Underscore), which the sequence matcher
++                    // does not equate with the unshifted '=' and '-'.
++                    if (event.modifiers & Qt.ControlModifier) {
++                        if (event.key === Qt.Key_Equal || event.key === Qt.Key_Plus) {
++                            win.increaseEditorFont();
++                            event.accepted = true;
++                            return;
++                        }
++                        if (event.key === Qt.Key_Minus || event.key === Qt.Key_Underscore) {
++                            win.decreaseEditorFont();
++                            event.accepted = true;
++                            return;
++                        }
++                        if (event.key === Qt.Key_0
++                            || (event.key === Qt.Key_Backspace
++                                && (event.modifiers & Qt.ShiftModifier))) {
++                            win.resetEditorFont();
++                            event.accepted = true;
++                            return;
++                        }
++                    }
++
+                     var pasteKey = (event.key === Qt.Key_V)
+                         && (event.modifiers & Qt.ControlModifier)
+                         && !(event.modifiers & (Qt.AltModifier | Qt.MetaModifier | Qt.ShiftModifier));
+@@ -1031,6 +1102,33 @@ ApplicationWindow {
+         }
+     }
+ 
++    // Transient readout for the font-size shortcuts, mirroring the terminal.
++    Label {
++        id: fontSizeOsd
++        z: 30
++        anchors.horizontalCenter: parent.horizontalCenter
++        anchors.bottom: parent.bottom
++        anchors.bottomMargin: win.scaledSize(40)
++        text: "Font size: " + win.editorFontPixelSize
++        color: win.textColor
++        font.family: "iA Writer Mono S"
++        font.pixelSize: win.scaledSize(12)
++        padding: win.scaledSize(10)
++        opacity: 0
++        visible: opacity > 0
++        background: Rectangle {
++            color: win.darkMode ? "#2a2a2a" : "#f0f0f0"
++            border.color: win.darkMode ? "#424242" : "#c8c8c8"
++        }
++        Behavior on opacity { NumberAnimation { duration: 120 } }
++    }
++
++    Timer {
++        id: fontSizeOsdTimer
++        interval: 900
++        onTriggered: fontSizeOsd.opacity = 0
++    }
++
+     Component.onCompleted: {
+         var geometry = backend.windowGeometry();
+         if (geometry.x >= 0) x = geometry.x;
+diff --git a/tests/tst_omawrite.cpp b/tests/tst_omawrite.cpp
+index e0bb3f5..2bef0a5 100644
+--- a/tests/tst_omawrite.cpp
++++ b/tests/tst_omawrite.cpp
+@@ -4,6 +4,7 @@
+ #include <QQmlContext>
+ #include <QQmlEngine>
+ #include <QQuickStyle>
++#include <QWindow>
+ 
+ #include "backend.h"
+ #include "markdownhighlighter.h"
+@@ -245,16 +246,47 @@ private slots:
+ 
+         QObject *editor = window->findChild<QObject *>(QStringLiteral("sourceEditor"));
+         QVERIFY(editor);
+-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 20);
++        // local: the editor is the desktop text size (anchored at 12px) plus 2px.
++        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 14);
++
++        // The terminal-style font-size shortcuts step around that default.
++        QVERIFY(QMetaObject::invokeMethod(window.data(), "increaseEditorFont"));
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
++        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 15);
++        QVERIFY(QMetaObject::invokeMethod(window.data(), "decreaseEditorFont"));
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
++        QVERIFY(QMetaObject::invokeMethod(window.data(), "resetEditorFont"));
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
++
++        // Real key events, since Shift turns '=' into Key_Plus and '_' into
++        // Key_Underscore, which the Shortcut sequences alone can miss.
++        QWindow *windowHandle = qobject_cast<QWindow *>(window.data());
++        QVERIFY(windowHandle);
++        windowHandle->requestActivate();
++        QTest::qWait(50);
++        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
++        QTest::keyClick(windowHandle, Qt::Key_Plus, Qt::ControlModifier | Qt::ShiftModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 16);
++        QTest::keyClick(windowHandle, Qt::Key_Underscore, Qt::ControlModifier | Qt::ShiftModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
++        QTest::keyClick(windowHandle, Qt::Key_Minus, Qt::ControlModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
++        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
++        QTest::keyClick(windowHandle, Qt::Key_0, Qt::ControlModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
++        QTest::keyClick(windowHandle, Qt::Key_Equal, Qt::ControlModifier);
++        QTest::keyClick(windowHandle, Qt::Key_Backspace, Qt::ControlModifier | Qt::ShiftModifier);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 14);
+ 
+         // `omarchy display text size 16` sets the GNOME factor to 16/12.
+         backend.setTextScale(16.0 / 12.0);
+-        QCOMPARE(window->property("editorFontPixelSize").toInt(), 27);
+-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 27);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 18);
++        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 18);
+ 
+         backend.setTextScale(9.0 / 12.0);
+-        QCOMPARE(window->property("editorFontPixelSize").toInt(), 15);
+-        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 15);
++        QCOMPARE(window->property("editorFontPixelSize").toInt(), 11);
++        QCOMPARE(editor->property("font").value<QFont>().pixelSize(), 11);
+     }
+ 
+     void remembersLastSaveDirectory() {
